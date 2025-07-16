@@ -16,12 +16,24 @@ st.markdown("""
 지정된 기간 동안의 미래 출고량을 예측합니다.
 """)
 
-# --- DB 연결 설정 (기존 코드와 동일) ---
-server = 'localhost'
-database = 'SPTEST1'
-driver = 'ODBC Driver 17 for SQL Server'
+# --- DB 연결 설정 (이 부분이 핵심적으로 수정됩니다!) ---
+# ✅ 1. 'YOUR_PUBLIC_IP' 대신 SSMS에서 연결 성공한 여러분의 공용(Public) IP 주소를 입력하세요.
+#    (예: '193.186.4.167' 또는 현재 여러분의 PC 공용 IP)
+# ✅ 2. 'YOUR_DATABASE_NAME' 대신 여러분의 실제 데이터베이스 이름을 입력하세요.
+#    (현재 코드에서는 'SPTEST1'로 되어 있으니, 그대로 사용하시려면 이 줄은 수정 불필요)
+# ✅ 3. 'your_streamlit_user_password' 대신 'streamlit_user' 계정의 실제 비밀번호를 입력하세요.
+
+server = '193.186.4.167'  # <-- 여기에 공용 IP 주소를 입력하세요 (예: '193.186.4.167')
+database = 'SPTEST1'       # 여러분의 데이터베이스 이름 (기존과 동일)
+driver = 'ODBC Driver 17 for SQL Server' # SQL Server 드라이버 이름 (대부분 동일)
+
+# SQL Server 인증을 위한 사용자 이름과 비밀번호
+sql_user = 'streamlit_user' # SSMS에서 생성한 SQL Server 인증 사용자 이름
+sql_password = '!marineking7' # <-- 여기에 'streamlit_user'의 비밀번호를 입력하세요!
+
+# 연결 문자열 구성: Trusted_Connection=yes 대신 UID/PWD 사용
 params = urllib.parse.quote_plus(
-    f"DRIVER={driver};SERVER={server};DATABASE={database};Trusted_Connection=yes;"
+    f"DRIVER={driver};SERVER={server};DATABASE={database};UID={sql_user};PWD={sql_password};"
 )
 
 # SQLAlchemy 엔진은 한 번만 생성하는 것이 효율적입니다.
@@ -31,8 +43,11 @@ def get_db_engine():
     try:
         engine = create_engine(f"mssql+pyodbc:///?odbc_connect={params}")
         # 연결 테스트 (선택 사항)
-        with engine.connect() as connection:
-            connection.execute(pd.text('SELECT 1'))
+        # SQLAlchemy 2.0 이상에서는 text() 함수를 pd.text 대신 sqlalchemy.text를 사용해야 할 수 있습니다.
+        # from sqlalchemy import text
+        # with engine.connect() as connection:
+        #     connection.execute(text('SELECT 1'))
+        
         st.success("데이터베이스 연결 성공! ✅")
         return engine
     except Exception as e:
@@ -147,7 +162,7 @@ def run_prediction(weekly_df_data, start_date, end_date):
             prev_year_data = weekly_df_data_inner[
                 (weekly_df_data_inner['제품코드'] == product_code) &
                 (weekly_df_data_inner['출고년도'] == year - 1) &
-                (weekly_df_data_inner['출고주차'] == week)      
+                (weekly_df_data_inner['출고주차'] == week)       
             ]
             if not prev_year_data.empty:
                 return prev_year_data['확정수량'].iloc[0]
@@ -222,7 +237,7 @@ def run_prediction(weekly_df_data, start_date, end_date):
                 '예측_기간': f'{year_str} {month_str} {week_str}',
                 '예측수량': predicted_quantity
             })
-        
+            
         results.extend(current_product_forecast_list)
         progress_bar.progress((idx + 1) / len(codes))
     
@@ -243,11 +258,6 @@ with col2:
 start_date_input = st.session_state.start_date
 end_date_input = st.session_state.end_date
 
-# 제품 선택 (옵션)
-# product_codes = ['전체'] + sorted(weekly_df['제품코드'].unique().tolist())
-# selected_product_code = st.selectbox("특정 제품 코드를 선택하세요 (선택 사항):", product_codes)
-
-
 if st.button("예측 실행"):
     if engine is None:
         st.error("데이터베이스 연결이 설정되지 않아 예측을 실행할 수 없습니다.")
@@ -257,16 +267,6 @@ if st.button("예측 실행"):
         st.error("예측 시작 날짜는 예측 종료 날짜보다 빨라야 합니다.")
     else:
         st.subheader("예측 결과")
-        # 실제 예측 함수 호출
-        # 선택된 제품 코드 필터링
-        # if selected_product_code == '전체':
-        #     filtered_weekly_df = weekly_df
-        # else:
-        #     filtered_weekly_df = weekly_df[weekly_df['제품코드'] == selected_product_code]
-        
-        # if filtered_weekly_df.empty:
-        #     st.warning("선택된 제품 코드에 대한 데이터가 부족하여 예측을 수행할 수 없습니다.")
-        # else:
         forecast_results = run_prediction(weekly_df, 
                                           pd.to_datetime(start_date_input), 
                                           pd.to_datetime(end_date_input))
